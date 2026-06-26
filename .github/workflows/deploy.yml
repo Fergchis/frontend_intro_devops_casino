@@ -1,0 +1,78 @@
+# Pipeline de Integración y Despliegue Continuo (CI/CD)
+# Se encarga de construir la imagen Docker y actualizar el clúster de Kubernetes en EKS
+name: Desplegar Casino Frontend en EKS (CI/CD)
+
+# Gatillador: Este flujo solo se ejecuta al hacer un "push" (o merge) sobre la rama 'deploy'
+on:
+  push:
+    branches: [ deploy ]
+  workflow_dispatch:
+
+# Variables de entorno globales para el flujo
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: microservicios-eks
+  ECR_REPOSITORY: casino-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Paso 1: Descarga el código de la rama 'deploy' al entorno de ejecución (Runner)
+      - name: 1. Descargar el codigo del repo
+        uses: actions/checkout@v4
+
+      # Paso 2: Inyecta las credenciales temporales obtenidas de AWS Academy
+      - name: 2. Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Paso 3: Autentica el entorno de GitHub contra Amazon Elastic Container Registry (ECR)
+      - name: 3. Login en Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Paso 4: Construye la imagen Docker del frontend Angular y la sube al repositorio ECR
+      # Se etiqueta con el hash del commit (github.sha) y como 'latest'
+      - name: 4. Construir y subir imagen Docker
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
+          docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
+
+      # Paso 5: Descarga e instala kubectl en el Runner para poder dar comandos a EKS
+      - name: 5. Instalar kubectl en el runner
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+
+      # Paso 6: Actualiza la configuración local para apuntar al clúster de EKS
+      - name: 6. Conectar kubectl al cluster
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+
+      # Paso 7: Reemplaza variables en los manifiestos de K8s y los aplica al clúster
+      # Se omite hpa.yaml en frontend porque se configuró con límite estático por ahora
+      - name: 7. Desplegar en EKS
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s|<ACCOUNT_ID>|$ACCOUNT_ID|g; s|<REGION>|$AWS_REGION|g; s|:latest|:$IMAGE_TAG|g" k8s/deployment.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      # Paso 8: Comprueba el Rolling Update y recupera la URL pública del LoadBalancer
+      - name: 8. Verificar rollout
+        run: |
+          kubectl rollout status deployment/casino-frontend --timeout=180s
+          kubectl get pods -l app=casino-frontend
+          echo "URL publica del LoadBalancer (tarda 2-3 min en responder):"
+          kubectl get svc casino-frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo

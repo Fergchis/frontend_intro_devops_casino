@@ -1,0 +1,62 @@
+# Definición de la API de Kubernetes para Despliegues (Deployments)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Nombre del despliegue
+  name: casino-frontend
+  namespace: default
+  labels:
+    app: casino-frontend
+spec:
+  # Cantidad inicial de pods a desplegar
+  replicas: 2
+  # Etiqueta que debe coincidir con la de los pods para agruparlos
+  selector:
+    matchLabels:
+      app: casino-frontend
+  # Definición de los pods que se crearán
+  template:
+    metadata:
+      labels:
+        app: casino-frontend
+    spec:
+      # Reglas para distribuir los pods entre los distintos nodos (Alta Disponibilidad)
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: casino-frontend
+      containers:
+        - name: casino-frontend
+          # Imagen construida y almacenada en Amazon ECR
+          image: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/casino-frontend:latest
+          # Forzar a descargar siempre la última imagen disponible
+          imagePullPolicy: Always
+          # Puerto expuesto por el contenedor
+          ports:
+            - containerPort: 8080
+              name: http
+          # Límites de recursos (CPU y RAM) requeridos para el correcto funcionamiento
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          # Sonda de Liveness: Verifica que Nginx esté vivo y respondiendo en la raíz
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Sonda de Readiness: Verifica que Nginx pueda recibir tráfico
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5

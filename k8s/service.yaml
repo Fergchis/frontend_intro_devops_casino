@@ -1,0 +1,19 @@
+# Definición de la API de Kubernetes para Servicios
+apiVersion: v1
+kind: Service
+metadata:
+  # Nombre del servicio que se usará para exponer el frontend
+  name: casino-frontend
+  namespace: default
+  labels:
+    app: casino-frontend
+spec:
+  # Mapeo de puertos
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  # Selector para encontrar qué pods pertenecen a este servicio
+  selector:
+    app: casino-frontend
+  type: NodePort
