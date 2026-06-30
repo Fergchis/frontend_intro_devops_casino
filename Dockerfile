@@ -6,13 +6,22 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-#Instalacion limpia y exacta de dependencias
-RUN npm ci
+
+#Instalar solo dependencias necesarias
+RUN if [ -f package-lock.json ]; then \
+        npm ci; \
+    else \
+        npm install; \
+    fi
 
 #Pasamos el codigo fuente al entorno de preparacion
 COPY . .
-#Compilamos la aplicacion para produccion
-RUN npm run build
+
+#Build de produccion: genera artefactos estaticos
+RUN npm run build && \
+    mkdir -p /app/build-output && \
+    ( cp -r /app/dist/*/browser/* /app/build-output/ 2>/dev/null || \
+        cp -r /app/dist/*/* /app/build-output/ )
 
 #ETAPA DE EJECUCION
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
@@ -31,5 +40,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 #Se cambia a usuario sin privilegios
 USER nginx
 
-#Comunicacion del docker
+#Comunicacion del docker 
 EXPOSE 8080
+
+#Comprobacion de estado mediante peticion HTTP interna
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8080/ > /dev/null || exit 1
