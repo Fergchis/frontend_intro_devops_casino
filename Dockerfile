@@ -8,11 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 #Instalar solo dependencias necesarias
-RUN if [ -f package-lock.json ]; then \
-      npm ci; \
-    else \
-      npm install; \
-    fi
+RUN npm ci
 
 #Pasamos el codigo fuente al entorno de preparacion
 COPY . .
