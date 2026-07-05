@@ -36,6 +36,15 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # NUEVO: Pruebas unitarias en el pipeline (Test)
+      - name: Ejecutar Pruebas Unitarias
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          npm ci --legacy-peer-deps
+          npm test -- --watch=false --browsers=ChromeHeadless
+
       # Paso 4: Construye la imagen Docker del frontend Angular y la sube al repositorio ECR
       # Se etiqueta con el hash del commit (github.sha) y como 'latest'
       - name: 4. Construir y subir imagen Docker
